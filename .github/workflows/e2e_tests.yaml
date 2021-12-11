@@ -1,0 +1,106 @@
+name: e2e
+
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+
+defaults:
+  run:
+    working-directory: tests
+
+jobs:
+  android:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v2.3.4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v2
+        with:
+          distribution: "temurin"
+          java-version: "11"
+      - name: "Install Flutter"
+        run: ../.github/workflows/scripts/install-flutter.sh stable
+      - name: "Install Tools"
+        run: |
+          ../.github/workflows/scripts/install-tools.sh
+          flutter config --no-enable-web --no-enable-ios --no-enable-macos-desktop
+      - name: "Build Example"
+        run: |
+          flutter build apk --debug --target=./test_driver/driver_e2e.dart --dart-define=CI=true --no-android-gradle-daemon
+      - name: "Drive Example"
+        uses: reactivecircus/android-emulator-runner@v2.21.0
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: Nexus 5X
+          working-directory: tests
+          script: |
+            sleep 15
+            flutter drive --target=./test_driver/driver_e2e.dart --dart-define=CI=true
+
+  apple:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v2.3.4
+        with:
+          fetch-depth: 0
+      - uses: mikehardy/buildcache-action@v1
+      - name: "Install Flutter"
+        run: ../.github/workflows/scripts/install-flutter.sh stable
+      - name: "Install Tools"
+        run: |
+          ../.github/workflows/scripts/install-tools.sh
+          flutter config --enable-macos-desktop
+      - name: "Build iOS Example"
+        run: |
+          flutter build ios --no-codesign --simulator --debug --target=./test_driver/driver_e2e.dart --dart-define=CI=true
+      - name: "Drive iOS Example"
+        run: |
+          # Boot simulator and wait for System app to be ready.
+          SIMULATOR="iPhone 11"
+          xcrun simctl bootstatus "$SIMULATOR" -b
+          xcrun simctl logverbose "$SIMULATOR" enable
+          # Sleep to allow simulator to settle.
+          sleep 15
+          # Uncomment following line to have simulator logs printed out for debugging purposes.
+          # xcrun simctl spawn booted log stream --predicate 'eventMessage contains "flutter"' &
+          flutter drive -d "$SIMULATOR" --target=./test_driver/driver_e2e.dart --dart-define=CI=true
+          FLUTTER_DRIVE_EXIT_CODE=$?
+          xcrun simctl shutdown "$SIMULATOR"
+          exit $FLUTTER_DRIVE_EXIT_CODE
+      - name: "Build MacOS Example"
+        run: |
+          flutter build macos --debug --target=./test_driver/driver_e2e.dart --device-id=macos --dart-define=CI=true
+      - name: "Drive MacOS Example"
+        run: |
+          flutter drive -d macos --target=./test_driver/driver_e2e.dart --dart-define=CI=true
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v2.3.4
+        with:
+          fetch-depth: 0
+      - name: "Install Flutter"
+        run: ../.github/workflows/scripts/install-flutter.sh stable
+      - name: "Install Tools"
+        run: |
+          ../.github/workflows/scripts/install-tools.sh
+          flutter config --enable-web
+      - name: "Drive Example"
+        run: |
+          chromedriver --port=4444 &
+          flutter drive --verbose-system-logs --device-id=web-server --target=./test_driver/driver_e2e.dart --dart-define=CI=true
